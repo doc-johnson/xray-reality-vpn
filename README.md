@@ -53,7 +53,7 @@ If users were added/removed via the web panel, pull changes to local `.env`:
 | `--ip` | Server IP address | required |
 | `--domain` | Server domain (enables TLS for subscriptions) | optional |
 | `--user` | SSH user | `root` |
-| `--force` | Remove existing install and redeploy without confirmation | — |
+| `--force` | Remove existing install and redeploy without confirmation. Preserves traffic stats (`totals.json`, `history.json`) and `access.log`. Generates new Reality keys — clients need to re-fetch their subscription. | — |
 
 ### No-domain mode
 
@@ -64,7 +64,42 @@ When `--domain` is omitted:
 - Port 80 stays closed
 - No certbot renew in cron
 
-`SSH_PORT` is set in `.env` (defaults to `22`).
+`SSH_PORT` in `.env` — the port SSH will be changed to on the server. The script connects on default port 22, then changes it to the specified one.
+
+## Subscriptions
+
+Each user gets a personal subscription URL:
+- With domain: `https://<domain>:8443/sub/<token>`
+- Without domain: `http://<ip>:8443/sub/<token>`
+
+Tokens are generated automatically (32-character hex). Copy the URL and add it to any compatible client: v2rayN, v2rayNG, Shadowrocket, Hiddify, etc.
+
+## API
+
+Base URL: `http://<server-ip>:8080/api/` (accessible only through VPN).
+
+Authorization: `X-API-Key` header with the key from `.env`.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/users` | List all users |
+| `POST` | `/api/users` | Create a new user |
+| `DELETE` | `/api/users/<name>` | Delete a user |
+| `POST` | `/api/users/<name>/disable` | Disable a user |
+| `POST` | `/api/users/<name>/enable` | Enable a user |
+| `POST` | `/api/users/<name>/reset` | Reset traffic statistics |
+
+## Monitoring dashboard
+
+Access: `http://<server-ip>:8080` — only through VPN.
+
+The dashboard shows:
+- User table: online status, traffic usage, IP addresses
+- Traffic charts: 1h / 6h / 24h
+- Activity timeline
+- IP address table
+
+If the API key is configured, the dashboard also provides a user management panel (create, delete, enable/disable users).
 
 ## Requirements
 
@@ -76,8 +111,35 @@ When `--domain` is omitted:
 
 **Server:**
 - Ubuntu 20.04+
+- 1 vCPU, 1 GB RAM
 - Open ports: 443 (Xray), 8443 (subscriptions)
 - Port 8080 (monitoring) is blocked externally, accessible only through VPN
+
+## Firewall
+
+- **firewalld**: ports open — SSH, 443, 8443, 80 (only with domain)
+- **iptables**: port 8080 is blocked via `DOCKER-USER` chain, accessible only through VPN
+- **SSH hardening**: `MaxAuthTries 3`, `PasswordAuthentication no`
+
+## Cron jobs
+
+| Schedule | Script | Description |
+|---|---|---|
+| `* * * * *` | `collect-stats.sh` | Collect traffic statistics |
+| `0 3 * * *` | — | Rotate `access.log` |
+| `0 3 1 */2 *` | — | Renew TLS certificate (domain mode only) |
+
+## Docker
+
+Docker is installed automatically if not present on the server.
+
+Three containers run in a single bridge network `xray-net`:
+
+| Container | Role |
+|---|---|
+| `xray` | Xray VPN server |
+| `xray-nginx` | Nginx — subscriptions + monitoring dashboard |
+| `xray-api` | REST API (Flask / Gunicorn) |
 
 ## Security
 
