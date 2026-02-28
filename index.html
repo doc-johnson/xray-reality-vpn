@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>VPN Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;max-width:1200px;margin:0 auto}
+h1{text-align:center;margin-bottom:4px;color:#38bdf8;font-size:1.5rem}
+.meta{text-align:center;color:#64748b;margin-bottom:20px;font-size:.8rem}
+.card{background:#1e293b;border-radius:10px;padding:20px;margin-bottom:20px}
+.card h2{font-size:1rem;color:#94a3b8;margin-bottom:12px;font-weight:600}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse}
+th{background:#334155;padding:10px 14px;text-align:left;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{background:#3b4c63}
+th .sort-arrow{margin-left:4px;font-size:.7rem;opacity:.5}
+th.sorted .sort-arrow{opacity:1;color:#38bdf8}
+th:first-child{border-radius:6px 0 0 6px}
+th:last-child{border-radius:0 6px 6px 0}
+td{padding:10px 14px;border-top:1px solid #293548}
+tr:hover td{background:#29354880}
+.bytes{font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:.85rem}
+.total-row{font-weight:700}
+.total-row td{border-top:2px solid #475569;background:#172033}
+.online{color:#4ade80}
+.offline{color:#475569}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.pct-cell{white-space:nowrap}
+.pct-wrap{display:flex;align-items:center;gap:6px}
+.pct-bar{background:#334155;border-radius:3px;height:5px;width:50px;overflow:hidden;flex-shrink:0}
+.pct-bar-inner{height:100%;border-radius:3px;background:#38bdf8;transition:width .3s}
+.chart-box{height:280px;position:relative}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.time-filter{display:flex;gap:6px;margin-bottom:12px}
+.time-filter button{background:#334155;border:none;color:#94a3b8;padding:5px 14px;border-radius:6px;font-size:.8rem;cursor:pointer;transition:background .2s,color .2s}
+.time-filter button:hover{background:#3b4c63}
+.time-filter button.active{background:#38bdf8;color:#0f172a;font-weight:600}
+@media(max-width:768px){
+  .grid-2{grid-template-columns:1fr}
+  .chart-box{height:220px}
+  .card{padding:12px}
+  table{font-size:.78rem}
+  th,td{padding:6px 5px}
+  .col-updown{display:none}
+  .pct-bar{display:none}
+  .last-seen-full{display:none}
+  .last-seen-short{display:inline}
+  .col-max24{display:none}
+}
+@media(min-width:769px){
+  .last-seen-short{display:none}
+}
+.legend-custom{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;justify-content:center}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:.75rem;color:#94a3b8;cursor:pointer;padding:2px 8px;border-radius:4px;transition:background .2s}
+.legend-item:hover{background:#33415580}
+.legend-item.hidden{opacity:.3}
+.legend-item .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.no-data{text-align:center;color:#475569;padding:40px;font-size:.9rem}
+
+/* User Management */
+.mgmt-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mgmt-header h2{margin-bottom:0}
+.api-key-row{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.api-key-row input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:.8rem;width:260px;font-family:monospace}
+.api-key-row input::placeholder{color:#475569}
+.api-key-row label{font-size:.8rem;color:#94a3b8;white-space:nowrap}
+.btn{border:none;padding:6px 14px;border-radius:6px;font-size:.8rem;cursor:pointer;transition:background .2s,opacity .2s;font-weight:500}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:#38bdf8;color:#0f172a}
+.btn-primary:hover:not(:disabled){background:#7dd3fc}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-danger:hover:not(:disabled){background:#f87171}
+.btn-warn{background:#f59e0b;color:#0f172a}
+.btn-warn:hover:not(:disabled){background:#fbbf24}
+.btn-success{background:#22c55e;color:#0f172a}
+.btn-success:hover:not(:disabled){background:#4ade80}
+.btn-sm{padding:4px 10px;font-size:.75rem}
+.mgmt-table th{cursor:default}
+.mgmt-table td{vertical-align:middle}
+.mgmt-actions{display:flex;gap:4px;flex-wrap:wrap}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
+.status-active{background:#22c55e20;color:#4ade80}
+.status-disabled{background:#ef444420;color:#f87171}
+.sub-link{color:#38bdf8;font-size:.75rem;word-break:break-all;text-decoration:none}
+.sub-link:hover{text-decoration:underline}
+.copy-btn{background:none;border:none;color:#64748b;cursor:pointer;font-size:.75rem;padding:2px 4px}
+.copy-btn:hover{color:#e2e8f0}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#1e293b;border-radius:12px;padding:24px;width:90%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal h3{color:#e2e8f0;margin-bottom:16px;font-size:1.1rem}
+.modal input{width:100%;background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:10px 14px;border-radius:8px;font-size:.9rem;margin-bottom:16px}
+.modal input:focus{outline:none;border-color:#38bdf8}
+.modal-buttons{display:flex;gap:8px;justify-content:flex-end}
+.mgmt-msg{padding:8px 14px;border-radius:6px;font-size:.8rem;margin-bottom:12px;display:none}
+.mgmt-msg.error{display:block;background:#ef444420;color:#f87171;border:1px solid #ef444440}
+.mgmt-msg.success{display:block;background:#22c55e20;color:#4ade80;border:1px solid #22c55e40}
+@media(max-width:768px){
+  .api-key-row{flex-direction:column;align-items:stretch}
+  .api-key-row input{width:100%}
+  .mgmt-actions{gap:2px}
+  .btn-sm{padding:3px 6px;font-size:.7rem}
+}
+</style>
+</head>
+<body>
+<h1>VPN Monitor</h1>
+<p class="meta" id="meta">Loading...</p>
+
+<div class="card">
+  <h2>Users</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th data-sort="user">User <span class="sort-arrow"></span></th>
+      <th data-sort="up" class="col-updown">Upload <span class="sort-arrow"></span></th>
+      <th data-sort="dn" class="col-updown">Download <span class="sort-arrow"></span></th>
+      <th data-sort="total" class="sorted">Total <span class="sort-arrow">▼</span></th>
+      <th data-sort="pct">% <span class="sort-arrow"></span></th>
+      <th data-sort="devices">Devices <span class="sort-arrow"></span></th>
+      <th data-sort="max24" class="col-max24">Max 24h <span class="sort-arrow"></span></th>
+      <th data-sort="seen">Last seen <span class="sort-arrow"></span></th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card" id="mgmtCard">
+  <div class="mgmt-header">
+    <h2>User Management</h2>
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add User</button>
+  </div>
+  <div class="api-key-row">
+    <label>API Key:</label>
+    <input type="password" id="apiKeyInput" placeholder="Enter API key..." onchange="saveApiKey(this.value)">
+  </div>
+  <div class="mgmt-msg" id="mgmtMsg"></div>
+  <div class="table-wrap">
+    <table class="mgmt-table">
+      <thead><tr>
+        <th>User</th>
+        <th>Status</th>
+        <th>Subscription</th>
+        <th>Traffic</th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody id="mgmtBody"><tr><td colspan="5" class="no-data">Enter API Key to load users</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h3>Add User</h3>
+    <input type="text" id="newUsername" placeholder="Username (a-z, 0-9, _, -)" autocomplete="off">
+    <div class="modal-buttons">
+      <button class="btn btn-warn" onclick="closeAddModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="addUser()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>IP Addresses</h2>
+  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+    <label style="font-size:.8rem;color:#94a3b8">Filter by user:</label>
+    <select id="ipUserFilter" style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 10px;border-radius:6px;font-size:.8rem">
+      <option value="">All</option>
+    </select>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>User</th>
+        <th>IP</th>
+        <th>Last seen</th>
+      </tr></thead>
+      <tbody id="ipBody"><tr><td colspan="3" class="no-data">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Traffic Rate (per minute)</h2>
+  <div class="time-filter" id="timeFilter">
+    <button data-hours="1">1h</button>
+    <button data-hours="6">6h</button>
+    <button data-hours="24" class="active">24h</button>
+  </div>
+  <div class="chart-box"><canvas id="rateChart"></canvas></div>
+  <div class="legend-custom" id="rateLegend"></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Total Traffic by User</h2>
+    <div class="chart-box"><canvas id="totalChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Activity Timeline</h2>
+    <div class="chart-box"><canvas id="activityChart"></canvas></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#38bdf8','#4ade80','#f472b6','#facc15','#a78bfa','#fb923c','#2dd4bf'];
+let rateChart, totalChart, activityChart;
+let currentStats = null, currentHistory = null;
+let sortCol = 'total', sortAsc = false;
+let filterHours = 24;
+
+function fmt(b) {
+  if (!b || b === 0) return '0 B';
+  const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(Math.abs(b)) / Math.log(k));
+  return (b / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0) + ' ' + s[i];
+}
+
+function isRecent(ts) {
+  if (!ts || ts === '—') return false;
+  const d = new Date(ts.replace(/\//g, '-'));
+  return (Date.now() - d.getTime()) < 2 * 60 * 1000;
+}
+
+function tsLabel(ts) {
+  if (!ts) return '';
+  const parts = ts.split(' ');
+  return parts.length >= 2 ? parts[1].substring(0, 5) : ts;
+}
+
+function filterHistory(history) {
+  if (!history || history.length === 0) return [];
+  const maxEntries = filterHours * 60;
+  return history.slice(-maxEntries);
+}
+
+function chartDefaults() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: {
+      legend: { display: false }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', maxTicksLimit: 20, font: { size: 10 } }, grid: { color: '#1e293b' } },
+      y: { ticks: { color: '#64748b', font: { size: 10 }, callback: v => fmt(v) }, grid: { color: '#1e293b' }, beginAtZero: true }
+    }
+  };
+}
+
+function updateTable(stats) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  document.getElementById('meta').textContent = 'Updated: ' + (stats.updated || '—') + ' · Auto-refresh: 30s';
+
+  let grandTotal = 0;
+  const users = Object.entries(stats.users || {}).map(([user, info]) => {
+    const up = info.uplink || 0, dn = info.downlink || 0;
+    const total = up + dn;
+    grandTotal += total;
+    return { user, up, dn, total, last_seen: info.last_seen, ips_now: info.ips_now || 0, ips_max_24h: info.ips_max_24h || 0 };
+  });
+
+  // Calculate percentages after grand total is known
+  users.forEach(u => u.pct = grandTotal > 0 ? (u.total / grandTotal) * 100 : 0);
+
+  // Sort
+  users.sort((a, b) => {
+    let va, vb;
+    switch (sortCol) {
+      case 'user': va = a.user.toLowerCase(); vb = b.user.toLowerCase(); return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      case 'up': va = a.up; vb = b.up; break;
+      case 'dn': va = a.dn; vb = b.dn; break;
+      case 'total': va = a.total; vb = b.total; break;
+      case 'pct': va = a.pct; vb = b.pct; break;
+      case 'devices': va = a.ips_now; vb = b.ips_now; break;
+      case 'max24': va = a.ips_max_24h; vb = b.ips_max_24h; break;
+      case 'seen':
+        va = a.last_seen && a.last_seen !== '—' ? new Date(a.last_seen.replace(/\//g, '-')).getTime() : 0;
+        vb = b.last_seen && b.last_seen !== '—' ? new Date(b.last_seen.replace(/\//g, '-')).getTime() : 0;
+        break;
+      default: va = a.total; vb = b.total;
+    }
+    if (typeof va === 'number') return sortAsc ? va - vb : vb - va;
+    return 0;
+  });
+
+  let tu = 0, td2 = 0;
+  for (const u of users) {
+    tu += u.up; td2 += u.dn;
+    const on = isRecent(u.last_seen);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="status-dot" style="background:${on ? '#4ade80' : '#475569'}"></span>${u.user}</td>
+      <td class="bytes col-updown">${fmt(u.up)}</td>
+      <td class="bytes col-updown">${fmt(u.dn)}</td>
+      <td class="bytes">${fmt(u.total)}</td>
+      <td class="pct-cell"><div class="pct-wrap"><span class="bytes">${u.pct.toFixed(1)}%</span>${u.pct > 0 ? `<div class="pct-bar"><div class="pct-bar-inner" style="width:${u.pct}%"></div></div>` : ''}</div></td>
+      <td class="bytes">${u.ips_now > 0 ? '<span class="online">' + u.ips_now + '</span>' : '0'}</td>
+      <td class="bytes col-max24">${u.ips_max_24h}</td>
+      <td class="${on ? 'online' : 'offline'}"><span class="last-seen-full">${u.last_seen || '—'}</span><span class="last-seen-short">${u.last_seen && u.last_seen !== '—' ? u.last_seen.split(' ')[1] || u.last_seen : '—'}</span></td>`;
+    tbody.appendChild(tr);
+  }
+  const tr = document.createElement('tr');
+  tr.className = 'total-row';
+  tr.innerHTML = `<td>TOTAL</td><td class="bytes col-updown">${fmt(tu)}</td><td class="bytes col-updown">${fmt(td2)}</td><td class="bytes">${fmt(tu + td2)}</td><td></td><td></td><td class="col-max24"></td><td></td>`;
+  tbody.appendChild(tr);
+}
+
+// Sorting
+document.querySelectorAll('th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.sort;
+    if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = false; }
+    // Update header indicators
+    document.querySelectorAll('th[data-sort]').forEach(t => {
+      t.classList.remove('sorted');
+      t.querySelector('.sort-arrow').textContent = '';
+    });
+    th.classList.add('sorted');
+    th.querySelector('.sort-arrow').textContent = sortAsc ? '▲' : '▼';
+    if (currentStats) updateTable(currentStats);
+  });
+});
+
+// Time filter
+document.querySelectorAll('#timeFilter button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#timeFilter button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filterHours = parseInt(btn.dataset.hours);
+    if (currentHistory) {
+      const filtered = filterHistory(currentHistory);
+      updateRateChart(filtered);
+      updateActivityChart(filtered);
+    }
+  });
+});
+
+function buildRateLegend(chart) {
+  const container = document.getElementById('rateLegend');
+  container.innerHTML = '';
+  chart.data.datasets.forEach((ds, i) => {
+    const item = document.createElement('span');
+    item.className = 'legend-item' + (ds.hidden ? ' hidden' : '');
+    item.innerHTML = `<span class="dot" style="background:${ds.borderColor}"></span>${ds.label}`;
+    item.addEventListener('click', () => {
+      const meta = chart.getDatasetMeta(i);
+      meta.hidden = !meta.hidden;
+      ds.hidden = meta.hidden;
+      item.classList.toggle('hidden', meta.hidden);
+      chart.update('none');
+    });
+    container.appendChild(item);
+  });
+}
+
+function updateRateChart(history) {
+  if (!history || history.length === 0) return;
+  const labels = history.map(h => tsLabel(h.ts));
+  const users = [...new Set(history.flatMap(h => Object.keys(h.users || {})))].sort();
+
+  const datasets = users.map((user, i) => ({
+    label: user,
+    data: history.map(h => ((h.users[user]?.up || 0) + (h.users[user]?.dn || 0))),
+    borderColor: COLORS[i % COLORS.length],
+    backgroundColor: COLORS[i % COLORS.length] + '15',
+    fill: true,
+    tension: 0.3,
+    pointRadius: 0,
+    pointHitRadius: 20,
+    pointHoverRadius: 5,
+    borderWidth: 1.5,
+    hidden: rateChart ? rateChart.getDatasetMeta(i)?.hidden || false : false
+  }));
+
+  const opts = chartDefaults();
+  opts.interaction = { mode: 'nearest', axis: 'x', intersect: false };
+  opts.plugins.tooltip = {
+    mode: 'nearest',
+    intersect: false,
+    callbacks: {
+      label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}/min`
+    }
+  };
+
+  if (rateChart) {
+    rateChart.data.labels = labels;
+    rateChart.data.datasets = datasets;
+    rateChart.update('none');
+  } else {
+    rateChart = new Chart(document.getElementById('rateChart'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: opts
+    });
+    buildRateLegend(rateChart);
+  }
+}
+
+function updateTotalChart(stats) {
+  const users = Object.entries(stats.users || {});
+  if (users.length === 0) return;
+  users.sort((a, b) => a[0].localeCompare(b[0]));
+
+  const labels = users.map(([u]) => u);
+  const upData = users.map(([, i]) => i.uplink || 0);
+  const dnData = users.map(([, i]) => i.downlink || 0);
+
+  const data = {
+    labels,
+    datasets: [
+      { label: 'Upload', data: upData, backgroundColor: '#38bdf880', borderColor: '#38bdf8', borderWidth: 1, borderRadius: 4 },
+      { label: 'Download', data: dnData, backgroundColor: '#4ade8080', borderColor: '#4ade80', borderWidth: 1, borderRadius: 4 }
+    ]
+  };
+
+  const opts = chartDefaults();
+  opts.plugins.legend = { display: true, labels: { color: '#94a3b8', font: { size: 11 } } };
+  opts.scales.x.ticks.callback = function(v) { return this.getLabelForValue(v); };
+
+  if (totalChart) {
+    totalChart.data = data;
+    totalChart.update('none');
+  } else {
+    totalChart = new Chart(document.getElementById('totalChart'), { type: 'bar', data, options: opts });
+  }
+}
+
+function updateActivityChart(history) {
+  if (!history || history.length === 0) return;
+  const labels = history.map(h => tsLabel(h.ts));
+  const users = [...new Set(history.flatMap(h => Object.keys(h.users || {})))].sort();
+
+  const datasets = users.map((user, i) => ({
+    label: user,
+    data: history.map(h => {
+      const t = (h.users[user]?.up || 0) + (h.users[user]?.dn || 0);
+      return t > 0 ? i + 1 : null;
+    }),
+    backgroundColor: COLORS[i % COLORS.length],
+    borderColor: COLORS[i % COLORS.length],
+    pointRadius: 4,
+    pointStyle: 'rectRounded',
+    showLine: false,
+    spanGaps: false
+  }));
+
+  const opts = chartDefaults();
+  opts.scales.y = {
+    ticks: {
+      color: '#94a3b8',
+      font: { size: 10 },
+      stepSize: 1,
+      callback: function(v) { return users[v - 1] || ''; }
+    },
+    grid: { color: '#1e293b22' },
+    min: 0,
+    max: users.length + 1
+  };
+  opts.scales.x.ticks.maxTicksLimit = 15;
+  opts.plugins.tooltip = {
+    callbacks: {
+      label: function(ctx) { return ctx.dataset.label + ': online'; }
+    }
+  };
+
+  if (activityChart) {
+    activityChart.data.labels = labels;
+    activityChart.data.datasets = datasets;
+    activityChart.options.scales.y = opts.scales.y;
+    activityChart.update('none');
+  } else {
+    activityChart = new Chart(document.getElementById('activityChart'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: opts
+    });
+  }
+}
+
+let currentIpLog = null;
+let ipFilterUser = '';
+
+document.getElementById('ipUserFilter').addEventListener('change', function() {
+  ipFilterUser = this.value;
+  if (currentIpLog) renderIpTable(currentIpLog);
+});
+
+function renderIpTable(ipLog) {
+  const tbody = document.getElementById('ipBody');
+  const filter = document.getElementById('ipUserFilter');
+
+  // Build flat array of {user, ip, last_seen}
+  const rows = [];
+  const userSet = new Set();
+  for (const [user, ips] of Object.entries(ipLog)) {
+    userSet.add(user);
+    for (const [ip, lastSeen] of Object.entries(ips)) {
+      rows.push({ user, ip, last_seen: lastSeen });
+    }
+  }
+
+  // Update filter dropdown (preserve selection)
+  const prev = filter.value;
+  filter.innerHTML = '<option value="">All</option>';
+  [...userSet].sort().forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u; opt.textContent = u;
+    if (u === prev) opt.selected = true;
+    filter.appendChild(opt);
+  });
+  if (prev && userSet.has(prev)) ipFilterUser = prev;
+
+  // Filter
+  const filtered = ipFilterUser ? rows.filter(r => r.user === ipFilterUser) : rows;
+
+  // Sort by last_seen descending
+  filtered.sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="no-data">No IP data</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  for (const r of filtered) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.user}</td><td class="bytes">${r.ip}</td><td>${r.last_seen}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function loadAll() {
+  try {
+    const [sR, hR, ipR] = await Promise.all([
+      fetch('/stats.json?' + Date.now()),
+      fetch('/history.json?' + Date.now()),
+      fetch('/ip_log.json?' + Date.now()).catch(() => null)
+    ]);
+    currentStats = await sR.json();
+    currentHistory = await hR.json();
+    if (ipR && ipR.ok) {
+      currentIpLog = await ipR.json();
+      renderIpTable(currentIpLog);
+    }
+    const filtered = filterHistory(currentHistory);
+    updateTable(currentStats);
+    updateRateChart(filtered);
+    updateTotalChart(currentStats);
+    updateActivityChart(filtered);
+  } catch (e) {
+    console.error('Load failed:', e);
+    document.getElementById('meta').textContent = 'Error loading data: ' + e.message;
+  }
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+
+// ===== User Management =====
+function getApiKey() { return document.getElementById('apiKeyInput').value || localStorage.getItem('vpn_api_key') || ''; }
+function saveApiKey(v) { localStorage.setItem('vpn_api_key', v); loadUsers(); }
+
+// Restore saved key on load
+(function() {
+  const saved = localStorage.getItem('vpn_api_key');
+  if (saved) {
+    document.getElementById('apiKeyInput').value = saved;
+    setTimeout(loadUsers, 500);
+  }
+})();
+
+function showMsg(text, type) {
+  const el = document.getElementById('mgmtMsg');
+  el.textContent = text;
+  el.className = 'mgmt-msg ' + type;
+  setTimeout(() => { el.className = 'mgmt-msg'; }, 5000);
+}
+
+async function apiCall(method, path, body) {
+  const key = getApiKey();
+  if (!key) { showMsg('Enter API Key first', 'error'); return null; }
+  const opts = { method, headers: { 'X-API-Key': key, 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok) { showMsg(data.error || 'Request failed', 'error'); return null; }
+  return data;
+}
+
+function openAddModal() { document.getElementById('addModal').classList.add('open'); document.getElementById('newUsername').value = ''; document.getElementById('newUsername').focus(); }
+function closeAddModal() { document.getElementById('addModal').classList.remove('open'); }
+
+// Close modal on Escape or overlay click
+document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
+document.getElementById('newUsername').addEventListener('keydown', function(e) { if (e.key === 'Enter') addUser(); if (e.key === 'Escape') closeAddModal(); });
+
+async function addUser() {
+  const name = document.getElementById('newUsername').value.trim();
+  if (!name) return;
+  const data = await apiCall('POST', '/api/users', { username: name });
+  if (data) {
+    closeAddModal();
+    showMsg('User "' + name + '" created', 'success');
+    loadUsers();
+  }
+}
+
+async function loadUsers() {
+  const key = getApiKey();
+  if (!key) return;
+  const data = await apiCall('GET', '/api/users');
+  if (!data) return;
+  renderMgmtTable(data.users);
+}
+
+let lastChangedUser = null;
+
+function renderMgmtTable(users) {
+  const tbody = document.getElementById('mgmtBody');
+  if (!users || users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="no-data">No users found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  for (const u of users) {
+    const isActive = u.status === 'active';
+    const tr = document.createElement('tr');
+    tr.id = 'mgmt-row-' + u.username;
+    if (lastChangedUser === u.username) {
+      tr.style.background = '#38bdf815';
+      tr.style.transition = 'background 2s';
+      setTimeout(() => { tr.style.background = ''; }, 100);
+      lastChangedUser = null;
+    }
+    const totalTraffic = (u.traffic?.uplink || 0) + (u.traffic?.downlink || 0);
+    const subHtml = u.subscription_url
+      ? '<a class="sub-link" href="' + u.subscription_url + '" target="_blank">' + u.subscription_url.split('/').pop().substring(0, 8) + '...</a> <button class="copy-btn" onclick="copyText(\'' + u.subscription_url + '\')" title="Copy">&#128203;</button>'
+      : '<span style="color:#475569">N/A</span>';
+    tr.innerHTML =
+      '<td>' + u.username + '</td>' +
+      '<td><span class="status-badge ' + (isActive ? 'status-active' : 'status-disabled') + '">' + u.status + '</span></td>' +
+      '<td>' + subHtml + '</td>' +
+      '<td class="bytes">' + fmt(totalTraffic) + '</td>' +
+      '<td><div class="mgmt-actions">' +
+        (isActive
+          ? '<button class="btn btn-warn btn-sm" onclick="toggleUser(\'' + u.username + '\',\'disable\',this)">Disable</button>'
+          : '<button class="btn btn-success btn-sm" onclick="toggleUser(\'' + u.username + '\',\'enable\',this)">Enable</button>') +
+        '<button class="btn btn-primary btn-sm" onclick="resetTraffic(\'' + u.username + '\',this)">Reset stat</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="deleteUser(\'' + u.username + '\',this)">Delete</button>' +
+      '</div></td>';
+    tbody.appendChild(tr);
+  }
+}
+
+function setBtnLoading(btn, text) {
+  if (!btn) return;
+  btn.disabled = true;
+  btn.dataset.origText = btn.textContent;
+  btn.textContent = text || 'Wait...';
+}
+
+function restoreBtn(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = btn.dataset.origText || '';
+}
+
+async function toggleUser(name, action, btn) {
+  setBtnLoading(btn, action === 'disable' ? 'Disabling...' : 'Enabling...');
+  const data = await apiCall('POST', '/api/users/' + encodeURIComponent(name) + '/' + action);
+  if (data) {
+    lastChangedUser = name;
+    showMsg(data.message, 'success');
+    await loadUsers();
+  } else {
+    restoreBtn(btn);
+  }
+}
+
+async function resetTraffic(name, btn) {
+  if (!confirm('Reset traffic for "' + name + '"?')) return;
+  setBtnLoading(btn, 'Resetting...');
+  const data = await apiCall('POST', '/api/users/' + encodeURIComponent(name) + '/reset');
+  if (data) {
+    lastChangedUser = name;
+    showMsg(data.message, 'success');
+    await loadUsers();
+  } else {
+    restoreBtn(btn);
+  }
+}
+
+async function deleteUser(name, btn) {
+  if (!confirm('Delete user "' + name + '"? This cannot be undone.')) return;
+  setBtnLoading(btn, 'Deleting...');
+  const data = await apiCall('DELETE', '/api/users/' + encodeURIComponent(name));
+  if (data) {
+    showMsg(data.message, 'success');
+    await loadUsers();
+  } else {
+    restoreBtn(btn);
+  }
+}
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => showMsg('Copied!', 'success')).catch(() => {});
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showMsg('Copied!', 'success'); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+}
+</script>
+</body>
+</html>
