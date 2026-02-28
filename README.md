@@ -117,12 +117,6 @@ If the API key is configured, the dashboard also provides a user management pane
 - Open ports: 443 (Xray), 8443 (subscriptions)
 - Port 8080 (monitoring) is blocked externally, accessible only through VPN
 
-## Firewall
-
-- **firewalld**: ports open — SSH, 443, 8443, 80 (only with domain)
-- **iptables**: port 8080 is blocked via `DOCKER-USER` chain, accessible only through VPN
-- **SSH hardening**: `MaxAuthTries 3`, `PasswordAuthentication no`
-
 ## Cron jobs
 
 `init.sh` automatically installs the following cron jobs on the server via `crontab`:
@@ -145,7 +139,23 @@ Three containers run in a single bridge network `xray-net`:
 
 ## Security
 
-- The API container mounts the Docker socket to restart Xray. If the API is compromised, the attacker gets root on the host. Port 8080 is firewalled and only reachable through the VPN tunnel.
+The server is hardened automatically during deploy:
+
+- **Firewall**: ports 443, 8443, SSH open via firewalld; port 80 open only with domain. Port 8080 blocked externally via iptables `DOCKER-USER` chain (persisted with systemd), accessible only through VPN
+- **SSH**: key-only authentication, `MaxAuthTries 3`, custom port, PAM and X11 disabled
+- **API key**: 32-char hex generated with `openssl rand`, passed via `X-API-Key` header
+- **Subscription tokens**: generated with `secrets.token_hex()` (cryptographically secure)
+- **Nginx**: TLS 1.2/1.3 only (domain mode), all paths except `/sub/` return 404, volumes mounted read-only
+- **Secrets**: `.env` file has `600` permissions; API key regenerated on each deploy
+- **Input validation**: usernames checked for length and allowed characters
+- **Docker socket**: mounted in API container to restart Xray. If the API is compromised, the attacker gets root on the host
+
+## TODO
+
+- [ ] Store API key as hash, compare with `hmac.compare_digest()` to prevent timing attacks
+- [ ] Add rate limiting to API (`flask-limiter`) to protect against key brute-force
+- [ ] Remove Docker socket mount — use Xray gRPC API for hot-reload user management instead of container restart
+- [ ] Add authentication for subscription URLs (basic auth or TTL links)
 
 ## License
 
