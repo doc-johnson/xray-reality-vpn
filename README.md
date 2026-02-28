@@ -148,7 +148,6 @@ The server is hardened automatically during deploy:
 - **Nginx**: TLS 1.2/1.3 only (domain mode), all paths except `/sub/` return 404, volumes mounted read-only
 - **Secrets**: `.env` file has `600` permissions; API key regenerated on each deploy
 - **Input validation**: usernames checked for length and allowed characters
-- **Docker socket**: mounted in API container to restart Xray. If the API is compromised, the attacker gets root on the host
 
 ## TODO
 
