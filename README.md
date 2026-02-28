@@ -2,6 +2,10 @@
 
 One-command deploy for Xray VLESS+Reality with multi-user support, subscription links, monitoring dashboard and user management API.
 
+## Demo
+
+![Dashboard](demo.gif)
+
 ## What's inside
 
 | File | Description |
