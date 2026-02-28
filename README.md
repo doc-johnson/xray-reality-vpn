@@ -53,7 +53,9 @@ If users were added/removed via the web panel, pull changes to local `.env`:
 | `--ip` | Server IP address | required |
 | `--domain` | Server domain (enables TLS for subscriptions) | optional |
 | `--user` | SSH user | `root` |
-| `--force` | Remove existing install and redeploy without confirmation. Preserves traffic stats (`totals.json`, `history.json`) and `access.log`. Generates new Reality keys — clients need to re-fetch their subscription. | — |
+| `--force` | Remove existing install and redeploy without confirmation | — |
+
+> **Note on `--force`:** preserves traffic stats (`totals.json`, `history.json`) and `access.log`. Generates new Reality keys — clients need to re-fetch their subscription.
 
 ### No-domain mode
 
@@ -123,11 +125,11 @@ If the API key is configured, the dashboard also provides a user management pane
 
 ## Cron jobs
 
-| Schedule | Script | Description |
-|---|---|---|
-| `* * * * *` | `collect-stats.sh` | Collect traffic statistics |
-| `0 3 * * *` | — | Rotate `access.log` |
-| `0 3 1 */2 *` | — | Renew TLS certificate (domain mode only) |
+`init.sh` automatically installs the following cron jobs on the server via `crontab`:
+
+- **Every minute** — run `collect-stats.sh` to collect traffic statistics from Xray access log and update `totals.json` / `history.json`
+- **Daily at 03:00** — truncate `access.log` to prevent disk overflow (resets to 0 bytes)
+- **1st of every 2 months at 03:00** — renew TLS certificate via certbot (domain mode only; stops nginx during renewal)
 
 ## Docker
 
