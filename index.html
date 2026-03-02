@@ -18,6 +18,7 @@ th{background:#334155;padding:10px 14px;text-align:left;font-size:.8rem;text-tra
 th:hover{background:#3b4c63}
 th .sort-arrow{margin-left:4px;font-size:.7rem;opacity:.5}
 th.sorted .sort-arrow{opacity:1;color:#38bdf8}
+th.active-sort .sort-arrow{opacity:1;color:#38bdf8}
 th:first-child{border-radius:6px 0 0 6px}
 th:last-child{border-radius:0 6px 6px 0}
 td{padding:10px 14px;border-top:1px solid #293548}
@@ -178,12 +179,17 @@ tr:hover td{background:#29354880}
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>User</th>
-        <th>IP</th>
-        <th>Last seen</th>
+        <th class="sortable" data-sort="user">User <span class="sort-arrow"></span></th>
+        <th class="sortable" data-sort="ip">IP <span class="sort-arrow"></span></th>
+        <th class="sortable active-sort desc" data-sort="last_seen">Last seen <span class="sort-arrow">▼</span></th>
       </tr></thead>
       <tbody id="ipBody"><tr><td colspan="3" class="no-data">Loading...</td></tr></tbody>
     </table>
+  </div>
+  <div id="ipShowMore" style="display:none;text-align:center;margin-top:8px">
+    <button class="btn btn-primary" style="font-size:.8rem;padding:4px 16px" onclick="toggleIpExpand()">
+      <span id="ipShowMoreText">Show all</span>
+    </button>
   </div>
 </div>
 
@@ -489,15 +495,55 @@ function updateActivityChart(history) {
 
 let currentIpLog = null;
 let ipFilterUser = '';
+let ipSortCol = 'last_seen';
+let ipSortAsc = false;
+let ipExpanded = false;
+const IP_LIMIT = 12;
 
 document.getElementById('ipUserFilter').addEventListener('change', function() {
   ipFilterUser = this.value;
+  ipExpanded = false;
   if (currentIpLog) renderIpTable(currentIpLog);
 });
+
+document.querySelectorAll('#ipBody').forEach(() => {
+  const ths = document.querySelectorAll('.sortable[data-sort]');
+  ths.forEach(th => {
+    th.addEventListener('click', function() {
+      const col = this.dataset.sort;
+      if (ipSortCol === col) {
+        ipSortAsc = !ipSortAsc;
+      } else {
+        ipSortCol = col;
+        ipSortAsc = true;
+      }
+      ths.forEach(h => { h.classList.remove('active-sort', 'asc', 'desc'); h.querySelector('.sort-arrow').textContent = ''; });
+      this.classList.add('active-sort', ipSortAsc ? 'asc' : 'desc');
+      this.querySelector('.sort-arrow').textContent = ipSortAsc ? '▲' : '▼';
+      if (currentIpLog) renderIpTable(currentIpLog);
+    });
+  });
+});
+
+function toggleIpExpand() {
+  ipExpanded = !ipExpanded;
+  if (currentIpLog) renderIpTable(currentIpLog);
+}
+
+function compareIp(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 4; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  }
+  return 0;
+}
 
 function renderIpTable(ipLog) {
   const tbody = document.getElementById('ipBody');
   const filter = document.getElementById('ipUserFilter');
+  const showMoreDiv = document.getElementById('ipShowMore');
+  const showMoreText = document.getElementById('ipShowMoreText');
 
   // Build flat array of {user, ip, last_seen}
   const rows = [];
@@ -523,19 +569,40 @@ function renderIpTable(ipLog) {
   // Filter
   const filtered = ipFilterUser ? rows.filter(r => r.user === ipFilterUser) : rows;
 
-  // Sort by last_seen descending
-  filtered.sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
+  // Sort
+  filtered.sort((a, b) => {
+    let cmp = 0;
+    if (ipSortCol === 'ip') {
+      cmp = compareIp(a.ip, b.ip);
+    } else {
+      cmp = (a[ipSortCol] || '').localeCompare(b[ipSortCol] || '');
+    }
+    return ipSortAsc ? cmp : -cmp;
+  });
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="3" class="no-data">No IP data</td></tr>';
+    showMoreDiv.style.display = 'none';
     return;
   }
 
+  // Limit display
+  const totalCount = filtered.length;
+  const display = ipExpanded ? filtered : filtered.slice(0, IP_LIMIT);
+
   tbody.innerHTML = '';
-  for (const r of filtered) {
+  for (const r of display) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${r.user}</td><td class="bytes">${r.ip}</td><td>${r.last_seen}</td>`;
     tbody.appendChild(tr);
+  }
+
+  // Show more / collapse button
+  if (totalCount > IP_LIMIT) {
+    showMoreDiv.style.display = '';
+    showMoreText.textContent = ipExpanded ? 'Collapse' : `Show all (${totalCount})`;
+  } else {
+    showMoreDiv.style.display = 'none';
   }
 }
 
