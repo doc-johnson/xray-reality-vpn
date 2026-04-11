@@ -149,8 +149,27 @@ The server is hardened automatically during deploy:
 - **Secrets**: `.env` file has `600` permissions; API key regenerated on each deploy
 - **Input validation**: usernames checked for length and allowed characters
 
+## Known vulnerability: VLESS client IP leak
+
+All popular VLESS mobile clients (v2rayNG, Hiddify, V2BOX, Neko Box, etc.) run a local SOCKS5 proxy without authentication. Any app on the device can connect to this proxy and discover the VPN server's outgoing IP address. Android Private Space / Knox does not isolate the loopback interface, so this attack works across profiles.
+
+**Impact**: if the entry and exit IP are the same (default setup), the server IP is exposed. Main risk is IP blocking, not deanonymization.
+
+**Reference**: https://habr.com/ru/articles/1020080/
+
+**Server-side mitigations** (not yet implemented):
+
+| Method | How it works |
+|---|---|
+| Separate outgoing IP | Add a second IP to the VPS, use `sendThrough` or iptables SNAT so outgoing traffic uses a different IP than the inbound one |
+| WARP outbound | Route outgoing traffic through Cloudflare WARP (SOCKS5 on localhost). Exit IP becomes Cloudflare's, not the server's |
+| Proxy chain via second VPS | Use a second VPS as exit node. Entry and exit IPs are on different servers |
+| XHTTP via Cloudflare CDN | Add a fallback inbound behind Cloudflare CDN. If the server IP gets blocked, clients connect through CDN. Requires a domain with Cloudflare NS |
+| WireGuard outbound | Route traffic through an external WireGuard server (Mullvad, ProtonVPN, own WG). Exit IP becomes the WG server's |
+
 ## TODO
 
+- [ ] Add XHTTP fallback inbound behind Cloudflare CDN (requires domain with Cloudflare NS)
 - [ ] Store API key as hash, compare with `hmac.compare_digest()` to prevent timing attacks
 - [ ] Add rate limiting to API (`flask-limiter`) to protect against key brute-force
 - [ ] Remove Docker socket mount — use Xray gRPC API for hot-reload user management instead of container restart
