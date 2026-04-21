@@ -5,6 +5,8 @@
 <title>VPN Monitor</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;max-width:1200px;margin:0 auto}
@@ -60,6 +62,28 @@ tr:hover td{background:#29354880}
 .legend-item.hidden{opacity:.3}
 .legend-item .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .no-data{text-align:center;color:#475569;padding:40px;font-size:.9rem}
+.view-toggle{display:inline-flex;background:#0f172a;border:1px solid #334155;border-radius:6px;overflow:hidden}
+.view-toggle button{background:none;border:none;color:#94a3b8;padding:4px 12px;font-size:.75rem;cursor:pointer}
+.view-toggle button.active{background:#38bdf8;color:#0f172a;font-weight:600}
+.user-badge{display:inline-block;background:#33415580;color:#cbd5e1;padding:1px 7px;border-radius:10px;font-size:.72rem;margin:1px 2px 1px 0;white-space:nowrap}
+#ipMap{height:360px;border-radius:8px;background:#0f172a;position:relative;overflow:hidden;isolation:isolate;z-index:0}
+.maplibregl-map{border-radius:8px}
+.maplibregl-popup-content{background:#1e293b !important;color:#e2e8f0;border-radius:6px;padding:10px 14px;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+.maplibregl-popup-tip{border-top-color:#1e293b !important;border-bottom-color:#1e293b !important}
+.maplibregl-popup-close-button{color:#94a3b8;font-size:1.1rem;padding:2px 8px}
+.maplibregl-popup-close-button:hover{background:transparent;color:#e2e8f0}
+.maplibregl-ctrl-group{background:#1e293b !important;border-radius:4px !important;box-shadow:0 1px 4px rgba(0,0,0,.4) !important}
+.maplibregl-ctrl-group button{background:#1e293b !important;color:#e2e8f0 !important;border-color:#334155 !important}
+.maplibregl-ctrl-group button:hover{background:#334155 !important}
+.maplibregl-ctrl-group button span{filter:invert(1) brightness(2)}
+.maplibregl-ctrl-attrib{background:rgba(15,23,42,.8) !important;color:#94a3b8 !important;font-size:.65rem}
+.maplibregl-ctrl-attrib a{color:#94a3b8 !important}
+.alerts-hint{color:#64748b;font-size:.75rem;margin-bottom:10px;line-height:1.5}
+.alert-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-left:3px solid #f59e0b;background:#f59e0b10;border-radius:4px;margin-bottom:6px;font-size:.85rem}
+.alert-row.danger{border-left-color:#ef4444;background:#ef444410}
+.alert-row .who{color:#e2e8f0;font-weight:600}
+.alert-row .when{color:#64748b;font-size:.75rem;white-space:nowrap}
+.alert-row .what{color:#cbd5e1}
 
 /* User Management */
 .mgmt-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -112,6 +136,11 @@ tr:hover td{background:#29354880}
 <body>
 <h1>VPN Monitor</h1>
 <p class="meta" id="meta">Loading...</p>
+
+<div class="card">
+  <h2>Alerts</h2>
+  <div id="alertsBody"><p class="no-data" style="padding:16px">No alerts</p></div>
+</div>
 
 <div class="card">
   <h2>Users</h2>
@@ -170,20 +199,22 @@ tr:hover td{background:#29354880}
 
 <div class="card">
   <h2>IP Addresses</h2>
-  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-    <label style="font-size:.8rem;color:#94a3b8">Filter by user:</label>
-    <select id="ipUserFilter" style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 10px;border-radius:6px;font-size:.8rem">
-      <option value="">All</option>
-    </select>
+  <div style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="font-size:.8rem;color:#94a3b8">Filter by user:</label>
+      <select id="ipUserFilter" style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:4px 10px;border-radius:6px;font-size:.8rem">
+        <option value="">All</option>
+      </select>
+    </div>
+    <div class="view-toggle" id="ipViewToggle">
+      <button data-view="grouped" class="active">By IP</button>
+      <button data-view="flat">Flat</button>
+    </div>
   </div>
   <div class="table-wrap">
-    <table>
-      <thead><tr>
-        <th class="sortable" data-sort="user">User <span class="sort-arrow"></span></th>
-        <th class="sortable" data-sort="ip">IP <span class="sort-arrow"></span></th>
-        <th class="sortable active-sort desc" data-sort="last_seen">Last seen <span class="sort-arrow">▼</span></th>
-      </tr></thead>
-      <tbody id="ipBody"><tr><td colspan="3" class="no-data">Loading...</td></tr></tbody>
+    <table id="ipTable">
+      <thead id="ipHead"></thead>
+      <tbody id="ipBody"><tr><td colspan="4" class="no-data">Loading...</td></tr></tbody>
     </table>
   </div>
   <div id="ipShowMore" style="display:none;text-align:center;margin-top:8px">
@@ -191,6 +222,12 @@ tr:hover td{background:#29354880}
       <span id="ipShowMoreText">Show all</span>
     </button>
   </div>
+</div>
+
+<div class="card">
+  <h2>Map</h2>
+  <div id="ipMap"></div>
+  <div class="legend-custom" id="mapLegend"></div>
 </div>
 
 <div class="card">
@@ -494,10 +531,12 @@ function updateActivityChart(history) {
 }
 
 let currentIpLog = null;
+let currentIpInfo = {};
 let ipFilterUser = '';
 let ipSortCol = 'last_seen';
 let ipSortAsc = false;
 let ipExpanded = false;
+let ipView = 'grouped';
 const IP_LIMIT = 12;
 
 document.getElementById('ipUserFilter').addEventListener('change', function() {
@@ -506,24 +545,28 @@ document.getElementById('ipUserFilter').addEventListener('change', function() {
   if (currentIpLog) renderIpTable(currentIpLog);
 });
 
-document.querySelectorAll('#ipBody').forEach(() => {
-  const ths = document.querySelectorAll('.sortable[data-sort]');
+document.getElementById('ipViewToggle').addEventListener('click', function(e) {
+  const btn = e.target.closest('button[data-view]');
+  if (!btn) return;
+  ipView = btn.dataset.view;
+  this.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+  ipSortCol = 'last_seen';
+  ipSortAsc = false;
+  ipExpanded = false;
+  if (currentIpLog) renderIpTable(currentIpLog);
+});
+
+function bindIpHeadSort() {
+  const ths = document.querySelectorAll('#ipHead .sortable[data-sort]');
   ths.forEach(th => {
     th.addEventListener('click', function() {
       const col = this.dataset.sort;
-      if (ipSortCol === col) {
-        ipSortAsc = !ipSortAsc;
-      } else {
-        ipSortCol = col;
-        ipSortAsc = true;
-      }
-      ths.forEach(h => { h.classList.remove('active-sort', 'asc', 'desc'); h.querySelector('.sort-arrow').textContent = ''; });
-      this.classList.add('active-sort', ipSortAsc ? 'asc' : 'desc');
-      this.querySelector('.sort-arrow').textContent = ipSortAsc ? '▲' : '▼';
+      if (ipSortCol === col) ipSortAsc = !ipSortAsc;
+      else { ipSortCol = col; ipSortAsc = true; }
       if (currentIpLog) renderIpTable(currentIpLog);
     });
   });
-});
+}
 
 function toggleIpExpand() {
   ipExpanded = !ipExpanded;
@@ -539,23 +582,37 @@ function compareIp(a, b) {
   return 0;
 }
 
+function ccToFlag(cc) {
+  if (!cc || cc.length !== 2) return '';
+  return String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+
+function ownerCell(ip) {
+  const info = currentIpInfo[ip];
+  if (!info) return '<span style="color:#64748b">-</span>';
+  const flag = info.cc ? ccToFlag(info.cc) : '';
+  const name = info.isp || info.org || info.as || '';
+  const mobile = info.mobile ? ' <span title="mobile carrier">(M)</span>' : '';
+  const hosting = info.hosting ? ' <span style="color:#f87171" title="datacenter IP">(DC)</span>' : '';
+  const title = [info.city, info.org, info.as].filter(Boolean).join(' | ');
+  return `<span title="${title}">${flag} ${name}${mobile}${hosting}</span>`;
+}
+
+function arrow(col) {
+  if (ipSortCol !== col) return '<span class="sort-arrow"></span>';
+  return `<span class="sort-arrow">${ipSortAsc ? 'asc' : 'desc'}</span>`;
+}
+
 function renderIpTable(ipLog) {
+  const thead = document.getElementById('ipHead');
   const tbody = document.getElementById('ipBody');
   const filter = document.getElementById('ipUserFilter');
   const showMoreDiv = document.getElementById('ipShowMore');
   const showMoreText = document.getElementById('ipShowMoreText');
 
-  // Build flat array of {user, ip, last_seen}
-  const rows = [];
   const userSet = new Set();
-  for (const [user, ips] of Object.entries(ipLog)) {
-    userSet.add(user);
-    for (const [ip, lastSeen] of Object.entries(ips)) {
-      rows.push({ user, ip, last_seen: lastSeen });
-    }
-  }
+  for (const user of Object.keys(ipLog)) userSet.add(user);
 
-  // Update filter dropdown (preserve selection)
   const prev = filter.value;
   filter.innerHTML = '<option value="">All</option>';
   [...userSet].sort().forEach(u => {
@@ -566,38 +623,71 @@ function renderIpTable(ipLog) {
   });
   if (prev && userSet.has(prev)) ipFilterUser = prev;
 
-  // Filter
-  const filtered = ipFilterUser ? rows.filter(r => r.user === ipFilterUser) : rows;
-
-  // Sort
-  filtered.sort((a, b) => {
-    let cmp = 0;
-    if (ipSortCol === 'ip') {
-      cmp = compareIp(a.ip, b.ip);
-    } else {
-      cmp = (a[ipSortCol] || '').localeCompare(b[ipSortCol] || '');
+  let rows;
+  if (ipView === 'grouped') {
+    const byIp = {};
+    for (const [user, ips] of Object.entries(ipLog)) {
+      if (ipFilterUser && user !== ipFilterUser) continue;
+      for (const [ip, lastSeen] of Object.entries(ips)) {
+        if (!byIp[ip]) byIp[ip] = { ip, users: new Set(), last_seen: lastSeen };
+        byIp[ip].users.add(user);
+        if (lastSeen > byIp[ip].last_seen) byIp[ip].last_seen = lastSeen;
+      }
     }
+    rows = Object.values(byIp).map(r => ({ ...r, users: [...r.users].sort() }));
+    thead.innerHTML = `<tr>
+      <th class="sortable" data-sort="ip">IP ${arrow('ip')}</th>
+      <th>Owner</th>
+      <th>Users</th>
+      <th class="sortable" data-sort="last_seen">Last seen ${arrow('last_seen')}</th>
+    </tr>`;
+  } else {
+    rows = [];
+    for (const [user, ips] of Object.entries(ipLog)) {
+      if (ipFilterUser && user !== ipFilterUser) continue;
+      for (const [ip, lastSeen] of Object.entries(ips)) {
+        rows.push({ user, ip, last_seen: lastSeen });
+      }
+    }
+    thead.innerHTML = `<tr>
+      <th class="sortable" data-sort="user">User ${arrow('user')}</th>
+      <th class="sortable" data-sort="ip">IP ${arrow('ip')}</th>
+      <th>Owner</th>
+      <th class="sortable" data-sort="last_seen">Last seen ${arrow('last_seen')}</th>
+    </tr>`;
+  }
+  bindIpHeadSort();
+
+  rows.sort((a, b) => {
+    let cmp = 0;
+    if (ipSortCol === 'ip') cmp = compareIp(a.ip, b.ip);
+    else if (ipSortCol === 'user') cmp = (a.user || a.users?.[0] || '').localeCompare(b.user || b.users?.[0] || '');
+    else cmp = (a[ipSortCol] || '').localeCompare(b[ipSortCol] || '');
     return ipSortAsc ? cmp : -cmp;
   });
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" class="no-data">No IP data</td></tr>';
+  const colspan = ipView === 'grouped' ? 4 : 4;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="no-data">No IP data</td></tr>`;
     showMoreDiv.style.display = 'none';
     return;
   }
 
-  // Limit display
-  const totalCount = filtered.length;
-  const display = ipExpanded ? filtered : filtered.slice(0, IP_LIMIT);
+  const totalCount = rows.length;
+  const display = ipExpanded ? rows : rows.slice(0, IP_LIMIT);
 
   tbody.innerHTML = '';
   for (const r of display) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r.user}</td><td class="bytes">${r.ip}</td><td>${r.last_seen}</td>`;
+    if (ipView === 'grouped') {
+      const badges = r.users.map(u => `<span class="user-badge" style="background:${userColor(u)}25;color:${userColor(u)}">${u}</span>`).join('');
+      tr.innerHTML = `<td class="bytes">${r.ip}</td><td>${ownerCell(r.ip)}</td><td>${badges}</td><td>${r.last_seen}</td>`;
+    } else {
+      tr.innerHTML = `<td>${r.user}</td><td class="bytes">${r.ip}</td><td>${ownerCell(r.ip)}</td><td>${r.last_seen}</td>`;
+    }
     tbody.appendChild(tr);
   }
 
-  // Show more / collapse button
   if (totalCount > IP_LIMIT) {
     showMoreDiv.style.display = '';
     showMoreText.textContent = ipExpanded ? 'Collapse' : `Show all (${totalCount})`;
@@ -606,18 +696,204 @@ function renderIpTable(ipLog) {
   }
 }
 
+let ipMap = null;
+const ipMarkers = [];
+const USER_PALETTE = ['#38bdf8','#4ade80','#f472b6','#facc15','#a78bfa','#fb923c','#2dd4bf','#f87171','#c084fc','#34d399','#fcd34d','#60a5fa','#fb7185','#a3e635'];
+let userColorMap = {};
+
+function assignUserColors(users) {
+  userColorMap = {};
+  [...users].sort().forEach((u, i) => { userColorMap[u] = USER_PALETTE[i % USER_PALETTE.length]; });
+}
+
+function userColor(user) { return userColorMap[user] || '#94a3b8'; }
+
+function renderMap(ipLog, ipInfo) {
+  if (typeof maplibregl === 'undefined') return;
+  if (!ipMap) {
+    ipMap = new maplibregl.Map({
+      container: 'ipMap',
+      style: {
+        version: 8,
+        sources: {
+          carto: {
+            type: 'raster',
+            tiles: [
+              'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+              'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+              'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+              'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+            ],
+            tileSize: 256,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          }
+        },
+        layers: [{ id: 'carto', type: 'raster', source: 'carto' }]
+      },
+      center: [0, 20],
+      zoom: 1
+    });
+    ipMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+  }
+  ipMarkers.forEach(m => m.remove());
+  ipMarkers.length = 0;
+
+  assignUserColors(Object.keys(ipLog));
+
+  const byCoord = {};
+  for (const [user, ips] of Object.entries(ipLog)) {
+    for (const [ip, lastSeen] of Object.entries(ips)) {
+      const info = ipInfo[ip];
+      if (!info || info.lat == null || info.lon == null) continue;
+      const key = `${info.lat.toFixed(3)},${info.lon.toFixed(3)}`;
+      if (!byCoord[key]) byCoord[key] = { lat: info.lat, lon: info.lon, city: info.city, cc: info.cc, entries: [] };
+      byCoord[key].entries.push({ ip, user, info, last_seen: lastSeen });
+    }
+  }
+
+  const usersOnMap = new Set();
+  const bounds = new maplibregl.LngLatBounds();
+  let hasPoints = false;
+
+  for (const spot of Object.values(byCoord)) {
+    const ipMapById = {};
+    for (const e of spot.entries) {
+      usersOnMap.add(e.user);
+      if (!ipMapById[e.ip]) ipMapById[e.ip] = { ip: e.ip, info: e.info, users: new Set(), last_seen: e.last_seen };
+      ipMapById[e.ip].users.add(e.user);
+      if (e.last_seen > ipMapById[e.ip].last_seen) ipMapById[e.ip].last_seen = e.last_seen;
+    }
+    const ipList = Object.values(ipMapById);
+    const usersHere = [...new Set(spot.entries.map(e => e.user))].sort();
+    const color = userColor(usersHere[0]);
+    const radius = Math.min(18, 5 + Math.sqrt(ipList.length) * 2);
+
+    const el = document.createElement('div');
+    el.style.cssText = `width:${radius*2}px;height:${radius*2}px;border-radius:50%;background:${color}99;border:2px solid ${color};cursor:pointer;box-sizing:border-box`;
+
+    const flag = spot.cc ? ccToFlag(spot.cc) : '';
+    const ipItems = ipList.sort((a,b) => b.last_seen.localeCompare(a.last_seen))
+      .slice(0, 12)
+      .map(r => {
+        const badges = [...r.users].sort().map(u => `<span class="user-badge" style="background:${userColor(u)}30;color:${userColor(u)}">${u}</span>`).join(' ');
+        const mob = r.info.mobile ? ' <span title="mobile carrier">(M)</span>' : '';
+        return `<div style="margin:3px 0"><code>${r.ip}</code>${mob} ${badges}<div style="font-size:.7rem;color:#64748b">${r.last_seen}</div></div>`;
+      }).join('');
+    const moreHint = ipList.length > 12 ? `<div style="color:#64748b;font-size:.7rem">+ ${ipList.length - 12} more</div>` : '';
+    const isp = spot.entries[0].info.isp || spot.entries[0].info.org || '';
+    const popupHtml = `
+      <div style="font-size:.85rem;line-height:1.4;min-width:220px;max-width:280px;color:#e2e8f0">
+        <div style="font-weight:600;margin-bottom:4px">${flag} ${spot.city || '?'} | ${ipList.length} IP${ipList.length>1?'s':''}</div>
+        <div style="color:#94a3b8;font-size:.75rem;margin-bottom:6px">${isp}</div>
+        ${ipItems}
+        ${moreHint}
+      </div>
+    `;
+
+    const popup = new maplibregl.Popup({ offset: radius + 5, maxWidth: '300px' }).setHTML(popupHtml);
+    const marker = new maplibregl.Marker({ element: el }).setLngLat([spot.lon, spot.lat]).setPopup(popup).addTo(ipMap);
+    ipMarkers.push(marker);
+    bounds.extend([spot.lon, spot.lat]);
+    hasPoints = true;
+  }
+
+  if (hasPoints) ipMap.fitBounds(bounds, { padding: 50, maxZoom: 7, duration: 0 });
+
+  const legend = document.getElementById('mapLegend');
+  legend.innerHTML = [...usersOnMap].sort().map(u =>
+    `<div class="legend-item"><span class="dot" style="background:${userColor(u)}"></span>${u}</div>`
+  ).join('');
+}
+
+function renderAlerts(ipLog, ipInfo) {
+  const body = document.getElementById('alertsBody');
+  const alerts = [];
+  const WINDOW_MS = 10 * 60 * 1000;
+
+  for (const [user, ips] of Object.entries(ipLog)) {
+    const entries = Object.entries(ips)
+      .map(([ip, lastSeen]) => ({ ip, t: new Date(lastSeen.replace(' ', 'T')).getTime(), last_seen: lastSeen, info: ipInfo[ip] }))
+      .filter(e => e.info && e.info.cc && !isNaN(e.t))
+      .sort((a, b) => a.t - b.t);
+
+    const reported = new Set();
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const dt = entries[j].t - entries[i].t;
+        if (dt > WINDOW_MS) break;
+        const a = entries[i], b = entries[j];
+        const diffPlace = (a.info.cc !== b.info.cc) || (a.info.city && b.info.city && a.info.city !== b.info.city);
+        if (!diffPlace) continue;
+        const key = [a.ip, b.ip].sort().join('|');
+        if (reported.has(key)) continue;
+        reported.add(key);
+        const locA = `${ccToFlag(a.info.cc)} ${a.info.city || a.info.cc}`;
+        const locB = `${ccToFlag(b.info.cc)} ${b.info.city || b.info.cc}`;
+        const minutes = Math.round(dt / 60000);
+        alerts.push({
+          severity: 'danger',
+          who: user,
+          what: `Subscription sharing: ${locA} (${a.ip}) <-> ${locB} (${b.ip}) within ${minutes}m`,
+          when: b.last_seen
+        });
+      }
+    }
+  }
+
+  for (const [user, ips] of Object.entries(ipLog)) {
+    for (const [ip, lastSeen] of Object.entries(ips)) {
+      const info = ipInfo[ip];
+      if (!info || info.mobile) continue;
+      if (info.hosting) {
+        alerts.push({
+          severity: 'warn',
+          who: user,
+          what: `Datacenter IP: ${ip} - ${info.isp || info.org || info.as || '?'}`,
+          when: lastSeen
+        });
+      }
+    }
+  }
+
+  alerts.sort((a, b) => b.when.localeCompare(a.when));
+
+  const hint = `<div class="alerts-hint">
+    <span style="color:#f87171">*</span> <b>Subscription sharing</b> - same user active from two distant locations within 10 minutes. Strong signal the subscription is being shared between physically separate devices.<br>
+    <span style="color:#f59e0b">*</span> <b>Datacenter IP</b> - connection from a hosting provider (AWS, Hetzner, etc.). Unusual for a real user - typical for bots or proxy chains.
+  </div>`;
+
+  if (alerts.length === 0) {
+    body.innerHTML = hint + '<p class="no-data" style="padding:16px">No alerts</p>';
+    return;
+  }
+  body.innerHTML = hint + alerts.map(a => `
+    <div class="alert-row ${a.severity === 'danger' ? 'danger' : ''}">
+      <span class="who">${a.who}</span>
+      <span class="what">${a.what}</span>
+      <span class="when">${a.when}</span>
+    </div>
+  `).join('');
+}
+
 async function loadAll() {
   try {
-    const [sR, hR, ipR] = await Promise.all([
+    const [sR, hR, ipR, infoR] = await Promise.all([
       fetch('/stats.json?' + Date.now()),
       fetch('/history.json?' + Date.now()),
-      fetch('/ip_log.json?' + Date.now()).catch(() => null)
+      fetch('/ip_log.json?' + Date.now()).catch(() => null),
+      fetch('/ip_info.json?' + Date.now()).catch(() => null)
     ]);
     currentStats = await sR.json();
     currentHistory = await hR.json();
+    if (infoR && infoR.ok) {
+      try { currentIpInfo = await infoR.json(); } catch { currentIpInfo = {}; }
+    }
     if (ipR && ipR.ok) {
       currentIpLog = await ipR.json();
+      assignUserColors(Object.keys(currentIpLog));
       renderIpTable(currentIpLog);
+      renderMap(currentIpLog, currentIpInfo);
+      renderAlerts(currentIpLog, currentIpInfo);
     }
     const filtered = filterHistory(currentHistory);
     updateTable(currentStats);

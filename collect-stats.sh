@@ -5,9 +5,11 @@ TOTALS_FILE="$WORK_DIR/monitoring/totals.json"
 HISTORY_FILE="$WORK_DIR/monitoring/history.json"
 IP_COUNTS_FILE="$WORK_DIR/monitoring/ip_counts.json"
 IP_LOG_FILE="$WORK_DIR/monitoring/ip_log.json"
+IP_INFO_FILE="$WORK_DIR/monitoring/ip_info.json"
 ACCESS_LOG="$WORK_DIR/config/access.log"
 USERS_FILE="$WORK_DIR/config/.user_uuids"
 MAX_HISTORY=1440
+IP_LOG_RETENTION_DAYS=90
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 TS_HIST=$(date '+%Y-%m-%d %H:%M')
 
@@ -145,11 +147,10 @@ if [[ -f "$ACCESS_LOG" && -s "$ACCESS_LOG" ]]; then
     fi
     rm -f "$IP_PAIRS_TMP"
 
-    # Remove entries older than 30 days from ip_log.json
-    THIRTY_DAYS_AGO=$(date -d '30 days ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
-        || date -v-30d '+%Y-%m-%d %H:%M:%S' 2>/dev/null || "")
-    if [[ -n "$THIRTY_DAYS_AGO" ]]; then
-        jq --arg cutoff "$THIRTY_DAYS_AGO" '
+    CUTOFF_DATE=$(date -d "${IP_LOG_RETENTION_DAYS} days ago" '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+        || date -v-${IP_LOG_RETENTION_DAYS}d '+%Y-%m-%d %H:%M:%S' 2>/dev/null || "")
+    if [[ -n "$CUTOFF_DATE" ]]; then
+        jq --arg cutoff "$CUTOFF_DATE" '
             to_entries | map(
                 .value = (.value | to_entries | map(select(.value >= $cutoff)) | from_entries)
             ) | map(select(.value | length > 0)) | from_entries
@@ -231,3 +232,38 @@ else
 fi
 
 rm -f "$WORK_DIR/monitoring/.hist_entry.tmp"
+
+{
+    [[ -f "$IP_INFO_FILE" && -s "$IP_INFO_FILE" ]] || echo '{}' > "$IP_INFO_FILE"
+
+    KNOWN_IPS=$(jq -r 'to_entries | .[] | select(.value.lat != null) | .key' "$IP_INFO_FILE" 2>/dev/null | sort -u)
+    ALL_IPS=$(jq -r 'to_entries | .[].value | keys[]' "$IP_LOG_FILE" 2>/dev/null | sort -u)
+    NEW_IPS=$(comm -23 <(echo "$ALL_IPS") <(echo "$KNOWN_IPS") | grep -E '^[0-9]+\.' | head -100)
+
+    if [[ -n "$NEW_IPS" ]]; then
+        QUERY=$(echo "$NEW_IPS" | awk 'BEGIN{printf "["} {printf "%s{\"query\":\"%s\"}", (NR>1?",":""), $0} END{print "]"}')
+        RESP=$(curl -sS --max-time 10 -H 'Content-Type: application/json' -d "$QUERY" \
+            'http://ip-api.com/batch?fields=status,query,countryCode,city,lat,lon,isp,org,as,mobile,hosting,proxy' 2>/dev/null || echo '[]')
+
+        if echo "$RESP" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            jq --argjson resp "$RESP" --arg ts "$(date '+%Y-%m-%d %H:%M:%S')" '
+                reduce $resp[] as $e (.;
+                    if $e.status == "success" then
+                        .[$e.query] = {cc: $e.countryCode, city: $e.city,
+                                       lat: $e.lat, lon: $e.lon,
+                                       isp: $e.isp, org: $e.org, as: $e.as,
+                                       mobile: $e.mobile, hosting: $e.hosting, proxy: $e.proxy,
+                                       updated: $ts}
+                    else . end
+                )
+            ' "$IP_INFO_FILE" > "${IP_INFO_FILE}.tmp" && mv "${IP_INFO_FILE}.tmp" "$IP_INFO_FILE"
+        fi
+    fi
+
+    ACTIVE_IPS=$(jq -r 'to_entries | .[].value | keys[]' "$IP_LOG_FILE" 2>/dev/null | sort -u | jq -R . | jq -s .)
+    if [[ -n "$ACTIVE_IPS" && "$ACTIVE_IPS" != "null" ]]; then
+        jq --argjson active "$ACTIVE_IPS" '
+            with_entries(select(.key as $k | $active | index($k)))
+        ' "$IP_INFO_FILE" > "${IP_INFO_FILE}.tmp" && mv "${IP_INFO_FILE}.tmp" "$IP_INFO_FILE"
+    fi
+} 2>/dev/null || true

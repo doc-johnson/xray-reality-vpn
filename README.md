@@ -96,10 +96,12 @@ Authorization: `X-API-Key` header with the key from `.env`.
 Access: `http://<server-ip>:8080` — only through VPN.
 
 The dashboard shows:
+- Alerts: subscription sharing and datacenter IPs
 - User table: online status, traffic usage, IP addresses
 - Traffic charts: 1h / 6h / 24h
 - Activity timeline
-- IP address table
+- IP Addresses table with Owner column (ISP, country, mobile flag) and By-IP / Flat views
+- Map: world map with one marker per unique IP location, colored by user
 
 If the API key is configured, the dashboard also provides a user management panel (create, delete, enable/disable users).
 
@@ -121,7 +123,7 @@ If the API key is configured, the dashboard also provides a user management pane
 
 `init.sh` automatically installs the following cron jobs on the server via `crontab`:
 
-- **Every minute** — run `collect-stats.sh` to collect traffic statistics from Xray access log and update `totals.json` / `history.json`
+- **Every minute** — run `collect-stats.sh`: collect traffic stats, enrich new IPs via ip-api.com, purge IP history older than `IP_LOG_RETENTION_DAYS` days (default 90)
 - **Daily at 03:00** — truncate `access.log` to prevent disk overflow (resets to 0 bytes)
 - **1st of every 2 months at 03:00** — renew TLS certificate via certbot (domain mode only; stops nginx during renewal)
 
