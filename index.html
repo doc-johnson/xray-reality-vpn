@@ -86,12 +86,8 @@ tr:hover td{background:#29354880}
 .alert-row .what{color:#cbd5e1}
 
 /* User Management */
-.mgmt-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mgmt-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .mgmt-header h2{margin-bottom:0}
-.api-key-row{display:flex;align-items:center;gap:8px;margin-bottom:16px}
-.api-key-row input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:.8rem;width:260px;font-family:monospace}
-.api-key-row input::placeholder{color:#475569}
-.api-key-row label{font-size:.8rem;color:#94a3b8;white-space:nowrap}
 .btn{border:none;padding:6px 14px;border-radius:6px;font-size:.8rem;cursor:pointer;transition:background .2s,opacity .2s;font-weight:500}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn-primary{background:#38bdf8;color:#0f172a}
@@ -126,8 +122,6 @@ tr:hover td{background:#29354880}
 .mgmt-msg.error{display:block;background:#ef444420;color:#f87171;border:1px solid #ef444440}
 .mgmt-msg.success{display:block;background:#22c55e20;color:#4ade80;border:1px solid #22c55e40}
 @media(max-width:768px){
-  .api-key-row{flex-direction:column;align-items:stretch}
-  .api-key-row input{width:100%}
   .mgmt-actions{gap:2px}
   .btn-sm{padding:3px 6px;font-size:.7rem}
 }
@@ -166,10 +160,6 @@ tr:hover td{background:#29354880}
     <h2>User Management</h2>
     <button class="btn btn-primary" onclick="openAddModal()">+ Add User</button>
   </div>
-  <div class="api-key-row">
-    <label>API Key:</label>
-    <input type="password" id="apiKeyInput" placeholder="Enter API key..." onchange="saveApiKey(this.value)">
-  </div>
   <div class="mgmt-msg" id="mgmtMsg"></div>
   <div class="table-wrap">
     <table class="mgmt-table">
@@ -180,7 +170,7 @@ tr:hover td{background:#29354880}
         <th>Traffic</th>
         <th>Actions</th>
       </tr></thead>
-      <tbody id="mgmtBody"><tr><td colspan="5" class="no-data">Enter API Key to load users</td></tr></tbody>
+      <tbody id="mgmtBody"><tr><td colspan="5" class="no-data">Loading...</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -910,17 +900,8 @@ loadAll();
 setInterval(loadAll, 30000);
 
 // ===== User Management =====
-function getApiKey() { return document.getElementById('apiKeyInput').value || localStorage.getItem('vpn_api_key') || ''; }
-function saveApiKey(v) { localStorage.setItem('vpn_api_key', v); loadUsers(); }
-
-// Restore saved key on load
-(function() {
-  const saved = localStorage.getItem('vpn_api_key');
-  if (saved) {
-    document.getElementById('apiKeyInput').value = saved;
-    setTimeout(loadUsers, 500);
-  }
-})();
+try { localStorage.removeItem('vpn_api_key'); } catch {}
+setTimeout(loadUsers, 200);
 
 function showMsg(text, type) {
   const el = document.getElementById('mgmtMsg');
@@ -930,9 +911,7 @@ function showMsg(text, type) {
 }
 
 async function apiCall(method, path, body) {
-  const key = getApiKey();
-  if (!key) { showMsg('Enter API Key first', 'error'); return null; }
-  const opts = { method, headers: { 'X-API-Key': key, 'Content-Type': 'application/json' } };
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(path, opts);
   const data = await r.json();
@@ -959,8 +938,6 @@ async function addUser() {
 }
 
 async function loadUsers() {
-  const key = getApiKey();
-  if (!key) return;
   const data = await apiCall('GET', '/api/users');
   if (!data) return;
   renderMgmtTable(data.users);

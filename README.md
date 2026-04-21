@@ -74,7 +74,7 @@ Each user gets a personal subscription URL:
 - With domain: `https://<domain>:8443/sub/<token>`
 - Without domain: `http://<ip>:8443/sub/<token>`
 
-Tokens are generated automatically (32-character hex). Copy the URL and add it to any compatible client: v2rayN, v2rayNG, Shadowrocket, Hiddify, etc.
+Tokens are generated automatically (32-character hex). The `/sub/` endpoint is protected by basic auth (`DASHBOARD_USER`/`DASHBOARD_PASSWORD` from `.env`) — clients that support basic auth in subscription URLs (Hiddify, v2rayN, etc.) can use `http://user:password@<host>:8443/sub/<token>`. Copy the URL and add it to any compatible client.
 
 ## API
 
@@ -93,7 +93,7 @@ Authorization: `X-API-Key` header with the key from `.env`.
 
 ## Monitoring dashboard
 
-Access: `http://<server-ip>:8080` — only through VPN.
+Access: `http://<server-ip>:8080` — only through VPN, protected by basic auth (`DASHBOARD_USER`/`DASHBOARD_PASSWORD` from `.env`).
 
 The dashboard shows:
 - Alerts: subscription sharing and datacenter IPs
@@ -144,11 +144,13 @@ Three containers run in a single bridge network `xray-net`:
 The server is hardened automatically during deploy:
 
 - **Firewall**: ports 443, 8443, SSH open via firewalld; port 80 open only with domain. Port 8080 blocked externally via iptables `DOCKER-USER` chain (persisted with systemd), accessible only through VPN
+- **Xray routing**: private networks (`geoip:private` — RFC1918, loopback, link-local) are blackholed, so a stolen subscription can't reach the docker bridge, host SSH port, or internal hoster network
+- **Dashboard auth**: basic auth (`DASHBOARD_USER`/`DASHBOARD_PASSWORD` from `.env`) protects `/` and `/sub/` on nginx; `/api/` has its own `X-API-Key`
 - **SSH**: key-only authentication, `MaxAuthTries 3`, custom port, PAM and X11 disabled
-- **API key**: 32-char hex generated with `openssl rand`, passed via `X-API-Key` header
-- **Subscription tokens**: generated with `secrets.token_hex()` (cryptographically secure)
+- **API key**: 32-char hex generated with `openssl rand`, timing-safe compare via `hmac.compare_digest`, rate-limited (60 rpm per IP) by `flask-limiter`
+- **Subscription tokens**: generated with `secrets.token_hex()` (cryptographically secure), `/sub/` endpoint gated by basic auth
 - **Nginx**: TLS 1.2/1.3 only (domain mode), all paths except `/sub/` return 404, volumes mounted read-only
-- **Secrets**: `.env` file has `600` permissions; API key regenerated on each deploy
+- **Secrets**: `.env` file has `600` permissions; API key and dashboard password regenerated on each deploy
 - **Input validation**: usernames checked for length and allowed characters
 
 ## Known vulnerability: VLESS client IP leak
@@ -172,10 +174,8 @@ All popular VLESS mobile clients (v2rayNG, Hiddify, V2BOX, Neko Box, etc.) run a
 ## TODO
 
 - [ ] Add XHTTP fallback inbound behind Cloudflare CDN (requires domain with Cloudflare NS)
-- [ ] Store API key as hash, compare with `hmac.compare_digest()` to prevent timing attacks
-- [ ] Add rate limiting to API (`flask-limiter`) to protect against key brute-force
 - [ ] Remove Docker socket mount — use Xray gRPC API for hot-reload user management instead of container restart
-- [ ] Add authentication for subscription URLs (basic auth or TTL links)
+- [ ] TTL / single-use subscription links (current: basic auth covers leaked URLs)
 
 ## License
 

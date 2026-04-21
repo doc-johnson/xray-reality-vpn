@@ -47,6 +47,20 @@ generate_tokens() {
     done
 }
 
+generate_dashboard_password() {
+    local env_path="$1"
+    local new_pass
+    new_pass=$(openssl rand -hex 16)
+    if grep -q '^DASHBOARD_PASSWORD=' "$env_path"; then
+        perl -i -pe "s|^DASHBOARD_PASSWORD=.*|DASHBOARD_PASSWORD=\"${new_pass}\"|" "$env_path"
+    else
+        printf 'DASHBOARD_PASSWORD="%s"\n' "$new_pass" >> "$env_path"
+    fi
+    if ! grep -q '^DASHBOARD_USER=' "$env_path"; then
+        printf 'DASHBOARD_USER="admin"\n' >> "$env_path"
+    fi
+}
+
 sub_base_url() {
     if [[ -n "$DOMAIN" ]]; then
         echo "https://$DOMAIN:$SUB_PORT"
@@ -100,6 +114,21 @@ if [[ "$DEPLOY_MODE" == "false" ]]; then
         generate_tokens "$ENV_FILE"
         echo "Tokens generated and saved."
     fi
+
+    if grep -q '^DASHBOARD_PASSWORD="[^"]\+"' "$ENV_FILE"; then
+        echo ""
+        echo "Existing dashboard password: $(grep '^DASHBOARD_PASSWORD=' "$ENV_FILE" | cut -d= -f2- | tr -d '"')"
+        read -rp "Generate a NEW dashboard password? (y/N): " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            generate_dashboard_password "$ENV_FILE"
+            echo "New dashboard password generated and saved."
+        fi
+    else
+        echo "No dashboard password — generating..."
+        generate_dashboard_password "$ENV_FILE"
+        echo "Dashboard password generated and saved."
+    fi
+    source "$ENV_FILE"
 
     echo ""
     echo "Subscription URLs:"
@@ -332,6 +361,11 @@ generate_xray_config() {
                 "inboundTag": ["api-in"],
                 "outboundTag": "api",
                 "type": "field"
+            },
+            {
+                "type": "field",
+                "outboundTag": "block",
+                "ip": ["geoip:private"]
             }
         ]
     },
@@ -339,6 +373,10 @@ generate_xray_config() {
         {
             "protocol": "freedom",
             "tag": "direct"
+        },
+        {
+            "protocol": "blackhole",
+            "tag": "block"
         }
     ]
 }
@@ -367,6 +405,9 @@ create_nginx_config() {
     echo ">>> Creating nginx config..."
     mkdir -p nginx/conf.d
 
+    printf '%s:%s\n' "$DASHBOARD_USER" "$(openssl passwd -apr1 "$DASHBOARD_PASSWORD")" > nginx/.htpasswd
+    chmod 644 nginx/.htpasswd
+
     if [[ -n "$DOMAIN" ]]; then
         cat > nginx/conf.d/default.conf <<NGEOF
 server {
@@ -378,6 +419,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location /sub/ {
+        auth_basic "Subscriptions";
+        auth_basic_user_file /etc/nginx/.htpasswd;
         alias /usr/share/nginx/subscriptions/;
         default_type text/plain;
         charset utf-8;
@@ -395,6 +438,8 @@ server {
     server_name _;
 
     location /sub/ {
+        auth_basic "Subscriptions";
+        auth_basic_user_file /etc/nginx/.htpasswd;
         alias /usr/share/nginx/subscriptions/;
         default_type text/plain;
         charset utf-8;
@@ -417,13 +462,18 @@ server {
     index index.html;
 
     location /api/ {
+        auth_basic "VPN Monitor";
+        auth_basic_user_file /etc/nginx/.htpasswd;
         proxy_pass http://xray-api:5000/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-API-Key "${API_KEY}";
         proxy_read_timeout 30s;
     }
 
     location / {
+        auth_basic "VPN Monitor";
+        auth_basic_user_file /etc/nginx/.htpasswd;
         try_files \$uri \$uri/ =404;
     }
 }
@@ -459,6 +509,7 @@ create_docker_compose() {
     echo ">>> Creating docker-compose.yml..."
 
     local nginx_volumes="      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
       - ./subscriptions:/usr/share/nginx/subscriptions:ro
       - ./monitoring:/usr/share/nginx/monitoring:ro"
     [[ -n "$DOMAIN" ]] && nginx_volumes="$nginx_volumes
@@ -580,6 +631,7 @@ main_deploy() {
     generate_reality_keys
     generate_xray_config
     create_subscriptions
+    API_KEY=$(openssl rand -hex 16)
     create_nginx_config
     create_monitoring
     create_docker_compose
@@ -590,11 +642,14 @@ main_deploy() {
     cat > .env <<ENVEOF
 DOMAIN=$DOMAIN
 SERVER_ADDRESS=$SERVER_ADDRESS
-API_KEY=$(openssl rand -hex 16)
+API_KEY=$API_KEY
+DASHBOARD_USER=$DASHBOARD_USER
+DASHBOARD_PASSWORD=$DASHBOARD_PASSWORD
 REALITY_PUBLIC_KEY=$PUBLIC_KEY
 XRAY_VERSION=$XRAY_VERSION
 ENVEOF
-    echo "  Admin API Key: $(grep '^API_KEY=' .env | cut -d= -f2)"
+    echo "  Admin API Key:    $API_KEY"
+    echo "  Dashboard:        $DASHBOARD_USER / $DASHBOARD_PASSWORD"
 
     echo ""
     echo ">>> Starting containers..."
@@ -635,7 +690,8 @@ ENVEOF
     echo "  SSH:              port $SSH_PORT"
     echo "  Public Key:       $PUBLIC_KEY"
     echo "  Short ID:         $SHORT_ID"
-    echo "  Admin API Key:    $(grep '^API_KEY=' .env | cut -d= -f2)"
+    echo "  Admin API Key:    $API_KEY"
+    echo "  Dashboard login:  $DASHBOARD_USER / $DASHBOARD_PASSWORD"
 }
 
 # --- Entry point ---

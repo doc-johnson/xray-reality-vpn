@@ -1,5 +1,6 @@
 import base64
 import fcntl
+import hmac
 import json
 import os
 import uuid
@@ -11,8 +12,16 @@ from pathlib import Path
 
 import docker
 from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 app = Flask(__name__)
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 # --- Paths ---
 CONFIG_DIR = Path("/data/config")
@@ -72,9 +81,10 @@ def file_lock():
 
 def require_api_key(f):
     @wraps(f)
+    @limiter.limit("60 per minute")
     def decorated(*args, **kwargs):
         key = request.headers.get("X-API-Key", "")
-        if not API_KEY or key != API_KEY:
+        if not API_KEY or not hmac.compare_digest(key, API_KEY):
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
